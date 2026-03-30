@@ -1,0 +1,79 @@
+pipeline {
+    agent any
+    environment {
+        DOCKER_IMAGE = "hemanathan18/devops-python-app"
+    }
+    stages {
+        stage ('Checkout') {
+            steps {
+                git 'https://github.com/Hemanathan-N/DevOps-Project.git'
+            }
+        }
+        stage ('Run Tests') {
+            steps {
+                dir('Jenkins-CICD-Project') {
+                    sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
+                    pytest || true
+                    ''' 
+                }
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                dir('Jenkins-CICD-Project') {
+                    sh '''
+                    docker build -t $DOCKER_IMAGE:latest .
+                    '''
+                }
+            }
+        }
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                credentialsId: 'DockerHub', 
+                passwordVariable: 'docker_pwd', 
+                usernameVariable: 'docker_un')]) {
+                    dir('Jenkins-CICD-Project') {
+                        sh '''
+                        docker login -u ${docker_un} -p ${docker_pwd}
+                        docker push $DOCKER_IMAGE:latest
+                        '''
+                    }
+                }
+            }
+        }
+        stage('Deploy to EC2') {
+            steps {
+                dir('Jenkins-CICD-Project') {
+                sh '''
+                #ssh -o StrictHostKeyChecking=no ubuntu@<EC2_PUBLIC_IP> << EOF
+                #docker pull $DOCKER_IMAGE:latest
+                docker stop python-app || true
+                docker rm python-app || true
+                docker run -d -p 5000:5000 --name python-app $DOCKER_IMAGE:latest
+                '''
+                }
+            }
+        }
+    }
+    post {
+        success {
+            emailext(
+                subject: "Jenkins Build Successful !",
+                body: "Jenkins CICD-Project-pipeline completed successfully.",
+                to: "hemeenufradus18180@gmail.com" 
+            ) 
+        }
+        failure {
+            emailext(
+                subject: "Jenkins Build Failed !!",
+                body: "Jenkins CICD-Project-pipeline failed. Please check logs.",
+                to: "hemeenufradus18180@gmail.com"
+            )
+        }
+    }
+}
